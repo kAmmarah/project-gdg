@@ -463,7 +463,19 @@ app.post('/api/chat', async (req, res) => {
 
     } catch (error) {
         console.error('Error with Gemini API:', error);
-        res.status(500).json({ error: 'Internal server error processing the chat request.' });
+
+        // Provide more descriptive error if possible
+        let errorMsg = 'Internal server error processing the chat request.';
+        if (!process.env.GEMINI_API_KEY) {
+            errorMsg = 'API Key is missing. Please check your environment variables.';
+        } else if (error.message && error.message.includes('model')) {
+            errorMsg = 'AI Model initialization failed. Please verify the model name.';
+        }
+
+        res.status(500).json({
+            error: errorMsg,
+            details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 });
 
