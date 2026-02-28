@@ -1,15 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic, MicOff, MessageCircle, X } from 'lucide-react';
+import { Send, Mic, MicOff, MessageCircle, X, Sparkles } from 'lucide-react';
 
 const AIChatWidget = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([
-        { role: 'assistant', content: 'Hello! How can I help you stay mindful and productive today?' }
+        { role: 'assistant', content: 'Hello! I am your Mindful AI. How can I help you stay grounded and productive today?' }
     ]);
     const [input, setInput] = useState('');
     const [isListening, setIsListening] = useState(false);
+    const [isTyping, setIsTyping] = useState(false);
     const messagesEndRef = useRef(null);
     const recognitionRef = useRef(null);
+    const usedVoice = useRef(false);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -17,7 +19,7 @@ const AIChatWidget = () => {
 
     useEffect(() => {
         scrollToBottom();
-    }, [messages]);
+    }, [messages, isTyping]);
 
     // Setup Speech Recognition
     useEffect(() => {
@@ -30,6 +32,7 @@ const AIChatWidget = () => {
             recognitionRef.current.onresult = (event) => {
                 const transcript = event.results[0][0].transcript;
                 setInput(transcript);
+                usedVoice.current = true;
                 handleSend(transcript);
                 setIsListening(false);
             };
@@ -57,14 +60,17 @@ const AIChatWidget = () => {
 
     const speakResponse = (text) => {
         if ('speechSynthesis' in window) {
-            const utterance = new SpeechSynthesisUtterance(text);
-            // Optional: Get a calming voice if available
-            const voices = window.speechSynthesis.getVoices();
-            const preferredVoice = voices.find(v => v.lang.includes('en') && v.name.includes('Female')) || voices[0];
-            if (preferredVoice) utterance.voice = preferredVoice;
+            // Cancel any ongoing speech
+            window.speechSynthesis.cancel();
 
-            utterance.rate = 0.9;
-            utterance.pitch = 1;
+            const utterance = new SpeechSynthesisUtterance(text);
+            const voices = window.speechSynthesis.getVoices();
+            // Try to find a nice premium-sounding voice
+            const premiumVoice = voices.find(v => v.name.includes('Google') || v.name.includes('Premium') || v.name.includes('Samantha'));
+            if (premiumVoice) utterance.voice = premiumVoice;
+
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
             window.speechSynthesis.speak(utterance);
         }
     };
@@ -72,37 +78,39 @@ const AIChatWidget = () => {
     const handleSend = async (textToSend = input) => {
         if (!textToSend.trim()) return;
 
-        const newMessages = [...messages, { role: 'user', content: textToSend }];
+        const currentInput = textToSend;
+        const newMessages = [...messages, { role: 'user', content: currentInput }];
         setMessages(newMessages);
         setInput('');
+        setIsTyping(true);
 
         try {
-            // If running locally, this targets the Vercel backend /api/chat route
             const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ messages: newMessages.slice(-5) }) // Send last 5 for context
+                body: JSON.stringify({ messages: newMessages.slice(-10) }) // Send more context
             });
 
             if (response.ok) {
                 const data = await response.json();
-                setMessages([...newMessages, data]);
+                setMessages(prev => [...prev, data]);
+                setIsTyping(false);
 
-                // If voice was used recently or we want to read it aloud
-                if (isListening || data.content) {
-                    // Speak by default if it was a voice query, but here we can just optionally speak it
-                    // Let's only speak if the user was using voice
-                    // Actually, let's just speak if it's a short response or if voice mode active
+                // Auto-speak if the user used voice OR if it's a short proactive response
+                if (usedVoice.current) {
                     speakResponse(data.content);
+                    usedVoice.current = false; // Reset
                 }
             } else {
-                setMessages([...newMessages, { role: 'assistant', content: 'Oops! I am having trouble connecting.' }]);
+                setMessages(prev => [...prev, { role: 'assistant', content: 'I am sorry, I am having trouble connecting to my core right now.' }]);
+                setIsTyping(false);
             }
         } catch (error) {
             console.error('Error fetching API', error);
-            setMessages([...newMessages, { role: 'assistant', content: 'Sorry, my server might be down.' }]);
+            setMessages(prev => [...prev, { role: 'assistant', content: 'My apologies, the connection seems to be interrupted.' }]);
+            setIsTyping(false);
         }
     };
 
@@ -111,9 +119,14 @@ const AIChatWidget = () => {
             {isOpen ? (
                 <div className="chat-window">
                     <div className="chat-header">
-                        <span>Mindful AI</span>
-                        <button className="btn-icon" onClick={() => setIsOpen(false)}>
-                            <X size={20} color="white" />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <div style={{ background: 'var(--primary)', padding: '0.4rem', borderRadius: '8px' }}>
+                                <Sparkles size={18} color="white" />
+                            </div>
+                            <span>Mindful AI</span>
+                        </div>
+                        <button className="btn-icon" onClick={() => setIsOpen(false)} style={{ color: 'white', opacity: 0.7 }}>
+                            <X size={24} />
                         </button>
                     </div>
 
@@ -123,6 +136,13 @@ const AIChatWidget = () => {
                                 {msg.content}
                             </div>
                         ))}
+                        {isTyping && (
+                            <div className="message assistant" style={{ display: 'flex', gap: '4px', padding: '0.75rem 1rem' }}>
+                                <div className="typing-dot"></div>
+                                <div className="typing-dot"></div>
+                                <div className="typing-dot"></div>
+                            </div>
+                        )}
                         <div ref={messagesEndRef} />
                     </div>
 
@@ -133,7 +153,7 @@ const AIChatWidget = () => {
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                            placeholder="Type a message..."
+                            placeholder="How can I assist you..."
                         />
                         {recognitionRef.current && (
                             <button
@@ -141,19 +161,36 @@ const AIChatWidget = () => {
                                 onClick={toggleListening}
                                 title="Voice Input"
                             >
-                                {isListening ? <MicOff size={18} /> : <Mic size={18} />}
+                                {isListening ? <MicOff size={20} /> : <Mic size={20} />}
                             </button>
                         )}
                         <button className="chat-send-btn" onClick={() => handleSend()}>
-                            <Send size={18} />
+                            <Send size={20} />
                         </button>
                     </div>
                 </div>
             ) : (
                 <button className="chat-fab" onClick={() => setIsOpen(true)}>
-                    <MessageCircle size={30} />
+                    <MessageCircle size={32} />
                 </button>
             )}
+
+            <style dangerouslySetInnerHTML={{
+                __html: `
+                .typing-dot {
+                    width: 6px;
+                    height: 6px;
+                    background: var(--text-secondary);
+                    border-radius: 50%;
+                    animation: typingPulse 1.4s infinite ease-in-out;
+                }
+                .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+                .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+                @keyframes typingPulse {
+                    0%, 100% { transform: translateY(0); opacity: 0.4; }
+                    50% { transform: translateY(-4px); opacity: 1; }
+                }
+            `}} />
         </div>
     );
 };
